@@ -1,14 +1,11 @@
-package index_file_allocation;
+package sequential_file_allocation;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.GridLayout;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -26,19 +23,30 @@ import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 
-public class IndexedAllocationGUI extends JFrame {
-    private final int DISK_SIZE = 64;
+public class SequentialAllocationGUI extends JFrame {
+    private final int DISK_SIZE = 64; // For simulation simplicity, we use a small disk size of 64 blocks
     private boolean[] disk = new boolean[DISK_SIZE];
-    private Map<String, Integer> directory = new HashMap<>(); 
-    private Map<Integer, List<Integer>> physicalDisk = new HashMap<>(); 
+    
+    // Directory stores: File Name -> (Start Block, Length)
+    private Map<String, FileEntry> directory = new HashMap<>(); 
     
     private JTextArea displayArea;
     private JTextField fileNameField, fileSizeField;
 
-    public IndexedAllocationGUI() {
+    // Helper class to store sequential file metadata
+    static class FileEntry {
+        int start;
+        int length;
+        FileEntry(int start, int length) {
+            this.start = start;
+            this.length = length;
+        }
+    }
+
+    public SequentialAllocationGUI() {
         try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); } catch (Exception e) {}
 
-        setTitle("Indexed File Allocation Simulator");
+        setTitle("Sequential File Allocation Simulator");
         setSize(750, 850);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         
@@ -51,7 +59,7 @@ public class IndexedAllocationGUI extends JFrame {
         JPanel inputPanel = new JPanel(new GridLayout(3, 2, 10, 10));
         inputPanel.setBackground(Color.WHITE);
         inputPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createTitledBorder(null, " Allocation Controls ", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("SansSerif", Font.BOLD, 14)),
+            BorderFactory.createTitledBorder(null, " Sequential Allocation Controls ", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("SansSerif", Font.BOLD, 14)),
             new EmptyBorder(10, 10, 10, 10)
         ));
         
@@ -59,13 +67,12 @@ public class IndexedAllocationGUI extends JFrame {
         fileNameField = new JTextField();
         inputPanel.add(fileNameField);
         
-        inputPanel.add(new JLabel("Number of Blocks:"));
+        inputPanel.add(new JLabel("File Size (Blocks):"));
         fileSizeField = new JTextField();
         inputPanel.add(fileSizeField);
         
         JButton createBtn = new JButton("Allocate File");
         createBtn.setFont(new Font("SansSerif", Font.BOLD, 13));
-        createBtn.setBackground(new Color(70, 130, 180));
         createBtn.setForeground(Color.BLACK);
         createBtn.addActionListener(e -> allocateFile());
         inputPanel.add(createBtn);
@@ -80,17 +87,16 @@ public class IndexedAllocationGUI extends JFrame {
         scrollPane.setBorder(BorderFactory.createTitledBorder(" File System Status "));
 
         // --- 3. Bottom Panel: Legend ---
-        JLabel legendLabel = new JLabel("LEGEND: [ I ] = Index Block  |  [ D ] = Data Block  |  [ . ] = Free Block");
+        JLabel legendLabel = new JLabel("LEGEND: [ S ] = Start Block  |  [ X ] = Allocated Block  |  [ . ] = Free Block");
         legendLabel.setFont(new Font("SansSerif", Font.BOLD, 11));
         legendLabel.setHorizontalAlignment(JLabel.CENTER);
         legendLabel.setBorder(new EmptyBorder(10, 0, 0, 0));
 
-        // Adding components to main panel
         mainPanel.add(inputPanel, BorderLayout.NORTH);
         mainPanel.add(scrollPane, BorderLayout.CENTER);
         mainPanel.add(legendLabel, BorderLayout.SOUTH);
         
-        updateDisplay("Welcome! Enter file details to begin allocation.");
+        updateDisplay("Welcome! Sequential Allocation requires contiguous disk space.");
     }
 
     private void allocateFile() {
@@ -98,36 +104,26 @@ public class IndexedAllocationGUI extends JFrame {
         String sizeStr = fileSizeField.getText();
         
         if (name.isEmpty() || sizeStr.isEmpty()) return;
-        
-        try {
-            int size = Integer.parseInt(sizeStr);
-            List<Integer> freeBlocks = new ArrayList<>();
-            for (int i = 0; i < DISK_SIZE; i++) {
-                if (!disk[i]) freeBlocks.add(i);
-            }
+        if (directory.containsKey(name)) { // Check for duplicate file name
+            JOptionPane.showMessageDialog(this, "Error: File '" + name + "' already exists!");
+            return;
+        }
 
-            // Need size + 1 (1 for the Index Block itself)
-            if (freeBlocks.size() < size + 1) {
-                JOptionPane.showMessageDialog(this, "Error: Not enough disk space!");
+        try {
+            int length = Integer.parseInt(sizeStr);
+            int startBlock = findContiguousSpace(length);
+
+            if (startBlock == -1) {
+                JOptionPane.showMessageDialog(this, "Error: No contiguous space of size " + length + " found!");
                 return;
             }
 
-            Collections.shuffle(freeBlocks);
-
-            // Pick a random block to be the Index Block
-            int indexBlockAddr = freeBlocks.remove(0);
-            disk[indexBlockAddr] = true;
-            
-            // Pick the next blocks as data blocks
-            List<Integer> dataPointers = new ArrayList<>();
-            for (int i = 0; i < size; i++) {
-                int b = freeBlocks.remove(0);
-                disk[b] = true;
-                dataPointers.add(b);
+            // Allocate blocks sequentially
+            for (int i = startBlock; i < startBlock + length; i++) {
+                disk[i] = true;
             }
 
-            directory.put(name, indexBlockAddr); // Store Name -> Index Address in the Directory
-            physicalDisk.put(indexBlockAddr, dataPointers); // Store Index Address -> Data Pointers in the "Physical" Disk Map
+            directory.put(name, new FileEntry(startBlock, length));
             
             renderFileSystem();
             fileNameField.setText("");
@@ -138,30 +134,43 @@ public class IndexedAllocationGUI extends JFrame {
         }
     }
 
+    // Algorithm to find the first available contiguous hole / consecutive free disk spaces of required length
+    private int findContiguousSpace(int required) {
+        int count = 0;
+        for (int i = 0; i < DISK_SIZE; i++) {
+            if (!disk[i]) {
+                count++;
+                if (count == required) return i - (required - 1);
+            } else {
+                count = 0;
+            }
+        }
+        return -1; // No sufficient contiguous space
+    }
+
     private void renderFileSystem() {
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("%-15s | %-12s | %-20s\n", "FILE NAME", "INDEX BLOCK ADDR", "DATA POINTERS"));
+        sb.append(String.format("%-15s | %-12s | %-12s | %-15s\n", "FILE NAME", "START BLOCK", "LENGTH", "BLOCK RANGE"));
         sb.append("============================================================\n");
         
-        // Store all index and data blocks for the visualization
-        Set<Integer> allIndexBlocks = new HashSet<>(directory.values());
-        Set<Integer> allDataBlocks = new HashSet<>();
-        for (List<Integer> list : physicalDisk.values()) allDataBlocks.addAll(list);
-
         for (String fileName : directory.keySet()) {
-            // Step 1: Get the Index Address from the Directory
-            int idxAddr = directory.get(fileName);
-            // Step 2: Use that Index Address to find the Pointers
-            List<Integer> pointers = physicalDisk.get(idxAddr);
-            sb.append(String.format("%-15s | %-12d | %s\n", fileName, idxAddr, pointers.toString()));
+            FileEntry entry = directory.get(fileName);
+            int endBlock = entry.start + entry.length - 1;
+            sb.append(String.format("%-15s | %-12d | %-12d | %d to %d\n", 
+                fileName, entry.start, entry.length, entry.start, endBlock));
         }
         
-        sb.append("\nPHYSICAL DISK MAP:\n");
+        sb.append("\nPHYSICAL DISK MAP (Contiguous Layout):\n");
         sb.append("------------------------------------------------------------\n");
+        
+        // Identify start blocks for visualization
+        Set<Integer> startBlocks = new HashSet<>();
+        for (FileEntry e : directory.values()) startBlocks.add(e.start);
+
         for (int i = 0; i < DISK_SIZE; i++) {
-            if (allIndexBlocks.contains(i)) sb.append("[ I ] "); // Index Block
-            else if (allDataBlocks.contains(i)) sb.append("[ D ] "); // Data Block
-            else sb.append("[ . ] "); // Free Block
+            if (startBlocks.contains(i)) sb.append("[ S ] "); // Start of a file
+            else if (disk[i]) sb.append("[ X ] ");           // Part of a file
+            else sb.append("[ . ] ");                        // Free
             
             if ((i + 1) % 8 == 0) sb.append("\n");
         }
@@ -174,6 +183,6 @@ public class IndexedAllocationGUI extends JFrame {
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new IndexedAllocationGUI().setVisible(true));
+        SwingUtilities.invokeLater(() -> new SequentialAllocationGUI().setVisible(true));
     }
 }
