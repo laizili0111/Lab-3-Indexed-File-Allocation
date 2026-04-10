@@ -56,7 +56,7 @@ public class SequentialAllocationGUI extends JFrame {
         setContentPane(mainPanel);
 
         // --- 1. Top Panel: Input Controls ---
-        JPanel inputPanel = new JPanel(new GridLayout(3, 2, 10, 10));
+        JPanel inputPanel = new JPanel(new GridLayout(4, 2, 10, 10));
         inputPanel.setBackground(Color.WHITE);
         inputPanel.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createTitledBorder(null, " Sequential Allocation Controls ", TitledBorder.DEFAULT_JUSTIFICATION, TitledBorder.DEFAULT_POSITION, new Font("SansSerif", Font.BOLD, 14)),
@@ -76,6 +76,12 @@ public class SequentialAllocationGUI extends JFrame {
         createBtn.setForeground(Color.BLACK);
         createBtn.addActionListener(e -> allocateFile());
         inputPanel.add(createBtn);
+
+        JButton deleteBtn = new JButton("Delete File");
+        deleteBtn.setFont(new Font("SansSerif", Font.BOLD, 13));
+        deleteBtn.setForeground(new Color(180, 0, 0));
+        deleteBtn.addActionListener(e -> deleteFile());
+        inputPanel.add(deleteBtn);
 
         // --- 2. Center Panel: Output Display ---
         displayArea = new JTextArea();
@@ -132,6 +138,30 @@ public class SequentialAllocationGUI extends JFrame {
         } catch (NumberFormatException e) {
             JOptionPane.showMessageDialog(this, "Error: Size must be a number!");
         }
+    }
+
+    // Function to delete file and release disk blocks
+    private void deleteFile() {
+        String name = fileNameField.getText();
+        if (name.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please enter the File Name to delete.");
+            return;
+        }
+
+        if (!directory.containsKey(name)) {
+            JOptionPane.showMessageDialog(this, "Error: File '" + name + "' not found!");
+            return;
+        }
+
+        FileEntry entry = directory.remove(name);
+        // Release blocks in the disk array
+        for (int i = entry.start; i < entry.start + entry.length; i++) {
+            disk[i] = false;
+        }
+
+        JOptionPane.showMessageDialog(this, "File '" + name + "' deleted successfully.");
+        renderFileSystem();
+        fileNameField.setText("");
     }
 
     // Algorithm to find the first available contiguous hole / consecutive free disk spaces of required length
