@@ -162,6 +162,7 @@ public class SequentialAllocationGUI extends JFrame {
         JOptionPane.showMessageDialog(this, "File '" + name + "' deleted successfully.");
         renderFileSystem();
         fileNameField.setText("");
+        fileSizeField.setText("");
     }
 
     // Algorithm to find the first available contiguous hole / consecutive free disk spaces of required length
